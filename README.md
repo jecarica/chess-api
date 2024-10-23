@@ -1,4 +1,4 @@
-# Recruitment task
+# task
 
 Your task is to create an application, that will enable the user to move chess pieces on a chess table, using REST API.
 
