@@ -96,13 +96,19 @@ object JsonCodecs {
 object Schemas {
   // Define Position schema manually since it's a case class with primitive types
   implicit val positionSchema: Schema[Position] = Schema.derived[Position]
+    .description("Chess board position")
+    .modify(_.x)(_.description("X coordinate (1-8)"))
+    .modify(_.y)(_.description("Y coordinate (1-8)"))
   
   // Define Piece schema
   implicit val pieceSchema: Schema[Piece] = Schema.derived[Piece]
+    .description("Chess piece")
+    .modify(_.id)(_.description("Unique identifier of the piece"))
 
   // Define Map schema using schemaForMap
   implicit val mapPositionPieceSchema: Schema[Map[Position, Piece]] = 
     Schema.schemaForMap[Position, Piece](pos => s"${pos.x},${pos.y}")
+      .description("Map of positions to pieces on the board")
 }
 
 case class AddPieceRequest(pieceType: PieceType, position: Position)
@@ -112,6 +118,9 @@ object AddPieceRequest {
   implicit val jsonDecoder: JsonDecoder[AddPieceRequest] = DeriveJsonDecoder.gen[AddPieceRequest]
   implicit val jsonEncoder: JsonEncoder[AddPieceRequest] = DeriveJsonEncoder.gen[AddPieceRequest]
   implicit val schema: Schema[AddPieceRequest] = Schema.derived[AddPieceRequest]
+    .description("Request to add a new piece to the board")
+    .modify(_.pieceType)(_.description("Type of piece to add (Rook or Bishop)"))
+    .modify(_.position)(_.description("Position where to add the piece"))
 }
 
 case class MovePieceRequest(to: Position)
@@ -121,6 +130,8 @@ object MovePieceRequest {
   implicit val jsonDecoder: JsonDecoder[MovePieceRequest] = DeriveJsonDecoder.gen[MovePieceRequest]
   implicit val jsonEncoder: JsonEncoder[MovePieceRequest] = DeriveJsonEncoder.gen[MovePieceRequest]
   implicit val schema: Schema[MovePieceRequest] = Schema.derived[MovePieceRequest]
+    .description("Request to move a piece to a new position")
+    .modify(_.to)(_.description("Target position to move the piece to"))
 }
 
 case class BoardState(pieces: Map[Position, Piece])
@@ -131,6 +142,8 @@ object BoardState {
   implicit val jsonDecoder: JsonDecoder[BoardState] = DeriveJsonDecoder.gen[BoardState]
   implicit val jsonEncoder: JsonEncoder[BoardState] = DeriveJsonEncoder.gen[BoardState]
   implicit val schema: Schema[BoardState] = Schema.derived[BoardState]
+    .description("Current state of the chess board")
+    .modify(_.pieces)(_.description("Map of positions to pieces currently on the board"))
 }
 
 class ChessApi(chessGameService: ChessGameService) {
@@ -150,12 +163,16 @@ class ChessApi(chessGameService: ChessGameService) {
         .description("Request to add a new piece")
         .example(AddPieceRequest(PieceType.Rook, Position(1, 1))))
       .out(jsonBody[Piece]
-        .description("The added piece with its ID"))
+        .description("The added piece with its ID")
+        .example(Rook("1")))
       .errorOut(
         oneOf[ChessError](
-          oneOfVariant(StatusCode.BadRequest, jsonBody[ChessError.InvalidPosition]),
-          oneOfVariant(StatusCode.BadRequest, jsonBody[ChessError.InvalidPieceType]),
-          oneOfVariant(StatusCode.Conflict, jsonBody[ChessError.PositionOccupied])
+          oneOfVariant(StatusCode.BadRequest, jsonBody[ChessError.InvalidPosition]
+            .example(ChessError.InvalidPosition(Position(9, 9), "Position must be within 8x8 board"))),
+          oneOfVariant(StatusCode.BadRequest, jsonBody[ChessError.InvalidPieceType]
+            .example(ChessError.InvalidPieceType("This piece has been removed and cannot be added back"))),
+          oneOfVariant(StatusCode.Conflict, jsonBody[ChessError.PositionOccupied]
+            .example(ChessError.PositionOccupied(Position(1, 1))))
         )
       )
       .description("Add a new piece to the board")
@@ -174,8 +191,10 @@ class ChessApi(chessGameService: ChessGameService) {
       .out(statusCode(StatusCode.NoContent))
       .errorOut(
         oneOf[ChessError](
-          oneOfVariant(StatusCode.NotFound, jsonBody[ChessError.PieceNotFound]),
-          oneOfVariant(StatusCode.BadRequest, jsonBody[ChessError.InvalidMove])
+          oneOfVariant(StatusCode.NotFound, jsonBody[ChessError.PieceNotFound]
+            .example(ChessError.PieceNotFound("non-existent-id"))),
+          oneOfVariant(StatusCode.BadRequest, jsonBody[ChessError.InvalidMove]
+            .example(ChessError.InvalidMove(Position(1, 1), Position(2, 2), "Invalid move for this piece type")))
         )
       )
       .description("Move a piece to a new position")
@@ -189,10 +208,12 @@ class ChessApi(chessGameService: ChessGameService) {
     endpoint.delete
       .in("api" / "v1" / "pieces" / path[String]("id"))
       .out(jsonBody[Position]
-        .description("The position where the piece was removed from"))
+        .description("The position where the piece was removed from")
+        .example(Position(1, 1)))
       .errorOut(
         oneOf[ChessError](
-          oneOfVariant(StatusCode.NotFound, jsonBody[ChessError.PieceNotFound])
+          oneOfVariant(StatusCode.NotFound, jsonBody[ChessError.PieceNotFound]
+            .example(ChessError.PieceNotFound("non-existent-id")))
         )
       )
       .description("Remove a piece from the board")
@@ -206,8 +227,14 @@ class ChessApi(chessGameService: ChessGameService) {
     endpoint.get
       .in("api" / "v1" / "board")
       .out(jsonBody[BoardState]
-        .description("Current state of the board"))
-      .errorOut(stringBody)
+        .description("Current state of the board")
+        .example(BoardState(Map(Position(1, 1) -> Rook("1")))))
+      .errorOut(
+        oneOf[ChessError](
+          oneOfVariant(StatusCode.InternalServerError, jsonBody[ChessError.InvalidPosition]
+            .example(ChessError.InvalidPosition(Position(0, 0), "Internal server error")))
+        )
+      )
       .description("Get the current state of the board")
       .tag("Board")
       .zServerLogic { _ =>
