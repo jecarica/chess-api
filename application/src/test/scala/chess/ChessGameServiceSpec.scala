@@ -26,6 +26,20 @@ object ChessGameServiceSpec extends ZIOSpecDefault {
         result <- chessGame.addPiece("Bishop", Position(1, 1)).either
       } yield assert(result)(isLeft(equalTo("Position already occupied!")))
     },
+    test("Fail to add a piece outside the board boundaries") {
+      for {
+        chessGame <- ZIO.service[ChessGameService]
+        result1 <- chessGame.addPiece("Rook", Position(0, 1)).either
+        result2 <- chessGame.addPiece("Rook", Position(1, 0)).either
+        result3 <- chessGame.addPiece("Rook", Position(9, 1)).either
+        result4 <- chessGame.addPiece("Rook", Position(1, 9)).either
+      } yield {
+        assert(result1)(isLeft(containsString("Invalid position"))) &&
+        assert(result2)(isLeft(containsString("Invalid position"))) &&
+        assert(result3)(isLeft(containsString("Invalid position"))) &&
+        assert(result4)(isLeft(containsString("Invalid position")))
+      }
+    },
     test("Fail to add a piece that was removed") {
       for {
         chessGame <- ZIO.service[ChessGameService]
@@ -71,6 +85,12 @@ object ChessGameServiceSpec extends ZIOSpecDefault {
       } yield {
         assertTrue(gameState(Position(7, 2)).id == piece.id) && assertTrue(!gameState.contains(Position(6, 1)))
       }
+    },
+    test("Should fail to move non-existent piece by ID") {
+      for {
+        chessGame <- ZIO.service[ChessGameService]
+        result <- chessGame.movePieceById("non-existent-id", Position(1, 1)).either
+      } yield assert(result)(isLeft(equalTo("Piece with id=non-existent-id doesn't exist on the board")))
     },
     test("should remove a piece from the board") {
       for {
