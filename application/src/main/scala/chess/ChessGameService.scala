@@ -24,7 +24,7 @@ class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece
   // Add a new piece with a unique ID to the board and emit an event to Kafka
   def addPiece(pieceType: PieceType, position: Position, pieceId: Option[String] = None): IO[ChessError, Piece] = {
     if (!isValidPosition(position)) {
-      ZIO.fail(ChessError.InvalidPosition(position, "Position must be within 8x8 board."))
+      ZIO.fail(ChessError.InvalidPosition(position, "Position coordinates must be between 1 and 8"))
     } else {
       for {
         board <- gameStateRef.get
@@ -36,7 +36,7 @@ class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece
           case PieceType.Rook => ZIO.succeed(Rook(id))
           case PieceType.Bishop => ZIO.succeed(Bishop(id))
         }
-        _ <- ZIO.fail(ChessError.InvalidPieceType("This piece has been removed and cannot be added back!"))
+        _ <- ZIO.fail(ChessError.InvalidPieceType("Invalid piece type. Must be either Rook or Bishop"))
           .when(removedPieces.contains(piece.id)) // Prevent re-adding removed pieces
         _ <- gameStateRef.update(_ + (position -> piece)) // Add piece to the board
         event = PieceAdded(piece, position) // Emit the "piece added" event
@@ -50,7 +50,7 @@ class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece
       gameState <- gameStateRef.get
       piece <- gameState.get(from) match {
         case Some(p) => ZIO.succeed(p)
-        case None => ZIO.fail(ChessError.PieceNotFound(s"No piece at position $from"))
+        case None => ZIO.fail(ChessError.PieceNotFound(s"No piece found at position $from"))
       }
       _ <- ZIO.fail(ChessError.PositionOccupied(to)).when(gameState.contains(to))
       _ <- ZIO.fail(ChessError.InvalidMove(from, to, "Invalid move for this piece type"))

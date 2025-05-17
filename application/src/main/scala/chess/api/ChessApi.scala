@@ -231,8 +231,8 @@ class ChessApi(chessGameService: ChessGameService) {
         .example(BoardState(Map(Position(1, 1) -> Rook("1")))))
       .errorOut(
         oneOf[ChessError](
-          oneOfVariant(StatusCode.InternalServerError, jsonBody[ChessError.InvalidPosition]
-            .example(ChessError.InvalidPosition(Position(0, 0), "Internal server error")))
+          oneOfVariant(StatusCode.BadRequest, jsonBody[ChessError.InvalidPosition]
+            .example(ChessError.InvalidPosition(Position(0, 0), "Position coordinates must be between 1 and 8")))
         )
       )
       .description("Get the current state of the board")
