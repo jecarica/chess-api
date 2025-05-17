@@ -1,16 +1,11 @@
 package chess
 
-import zio.json._
+import zio.json.{DeriveJsonDecoder, DeriveJsonEncoder, JsonDecoder, JsonEncoder}
 
 case class Position(x: Int, y: Int)
 
 object Position {
-  implicit val positionEncoder: JsonEncoder[Position] = DeriveJsonEncoder.gen[Position]
-  implicit val positionDecoder: JsonDecoder[Position] = DeriveJsonDecoder.gen[Position]
+  implicit val jsonDecoder: JsonDecoder[Position] = DeriveJsonDecoder.gen[Position]
+  implicit val jsonEncoder: JsonEncoder[Position] = DeriveJsonEncoder.gen[Position]
 }
 
-object Encoders {
-  // Encoder for (String, Position) tuple
-  implicit val stringPositionEncoder: JsonEncoder[(String, Position)] =
-    JsonEncoder.tuple2[String, Position]
-}

@@ -4,14 +4,14 @@ import zio.kafka.consumer.{Consumer, ConsumerSettings, Subscription}
 import zio.{ZIO, Scope, _}
 import zio.kafka.producer._
 import zio.kafka.serde.{Serde => KafkaSerde}
-
+import chess.api.{PieceType, ChessError}
 import java.util.UUID
 
 trait GameService {
-  def addPiece(pieceType: String, position: Position, pieceId: Option[String] = None): IO[String, Piece]
-  def movePiece(from: Position, to: Position): IO[String, Unit]
-  def movePieceById(id: String, to: Position): IO[String, Unit]
-  def removePieceById(id: String): IO[String, Position]
+  def addPiece(pieceType: PieceType, position: Position, pieceId: Option[String] = None): IO[ChessError, Piece]
+  def movePiece(from: Position, to: Position): IO[ChessError, Unit]
+  def movePieceById(id: String, to: Position): IO[ChessError, Unit]
+  def removePieceById(id: String): IO[ChessError, Position]
 }
 
 class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece]], removedPiecesRef: Ref[Map[String, Position]]) extends GameService {
@@ -22,22 +22,21 @@ class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece
   private def generateId: String = UUID.randomUUID().toString
 
   // Add a new piece with a unique ID to the board and emit an event to Kafka
-  def addPiece(pieceType: String, position: Position, pieceId: Option[String] = None): IO[String, Piece] = {
+  def addPiece(pieceType: PieceType, position: Position, pieceId: Option[String] = None): IO[ChessError, Piece] = {
     if (!isValidPosition(position)) {
-      ZIO.fail(s"Invalid position: $position. Position must be within 8x8 board.")
+      ZIO.fail(ChessError.InvalidPosition(position, "Position must be within 8x8 board."))
     } else {
       for {
         board <- gameStateRef.get
         removedPieces <- removedPiecesRef.get
         // Check if the position is already occupied or if the piece ID has been removed previously
-        _ <- ZIO.fail("Position already occupied!").when(board.contains(position))
+        _ <- ZIO.when(board.contains(position))(ZIO.fail(ChessError.PositionOccupied(position)))
         id = pieceId.getOrElse(generateId)
         piece <- pieceType match {
-          case "Rook" => ZIO.succeed(Rook(id))
-          case "Bishop" => ZIO.succeed(Bishop(id))
-          case _ => ZIO.fail("Invalid piece type!")
+          case PieceType.Rook => ZIO.succeed(Rook(id))
+          case PieceType.Bishop => ZIO.succeed(Bishop(id))
         }
-        _ <- ZIO.fail("This piece has been removed and cannot be added back!")
+        _ <- ZIO.fail(ChessError.InvalidPieceType("This piece has been removed and cannot be added back!"))
           .when(removedPieces.contains(piece.id)) // Prevent re-adding removed pieces
         _ <- gameStateRef.update(_ + (position -> piece)) // Add piece to the board
         event = PieceAdded(piece, position) // Emit the "piece added" event
@@ -46,40 +45,43 @@ class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece
     }
   }
 
-  def movePiece(from: Position, to: Position): ZIO[Any, String, Unit] = {
+  def movePiece(from: Position, to: Position): IO[ChessError, Unit] = {
     for {
       gameState <- gameStateRef.get
-      piece <- ZIO.fromOption(gameState.get(from)).orElseFail("No piece at the given position")
-      _ <- ZIO.fail("Position already occupied").when(gameState.contains(to))
-      _ <- ZIO.fail(s"Invalid move.").when(!piece.moveIsValid(from, to, gameState))
+      piece <- gameState.get(from) match {
+        case Some(p) => ZIO.succeed(p)
+        case None => ZIO.fail(ChessError.PieceNotFound(s"No piece at position $from"))
+      }
+      _ <- ZIO.fail(ChessError.PositionOccupied(to)).when(gameState.contains(to))
+      _ <- ZIO.fail(ChessError.InvalidMove(from, to, "Invalid move for this piece type"))
+        .when(!piece.moveIsValid(from, to, gameState))
       _ <- gameStateRef.update(state => state - from + (to -> piece))
       event = PieceMoved(piece, from, to)
       _ <- event.sendEventToKafka(producer, piece.id).mapError(err => throw new RuntimeException(err))
     } yield ()
   }
 
-
   // Move a piece by its unique ID to a new position and emit an event to Kafka
-  def movePieceById(id: String, to: Position): IO[String, Unit] = {
+  def movePieceById(id: String, to: Position): IO[ChessError, Unit] = {
     if (!isValidPosition(to)) {
-      ZIO.fail(s"Invalid position: $to. Position must be within 8x8 board.")
+      ZIO.fail(ChessError.InvalidPosition(to, "Position must be within 8x8 board."))
     } else {
       for {
         board <- gameStateRef.get
-        _ <- ZIO.fail(s"Piece with id=$id doesn't exist on the board").when(!pieceExists(id, board))
         foundPiece <- findPieceById(id, board)
         (from, piece) = foundPiece
-        _ <- if (board.contains(to)) ZIO.fail(s"Position $to is already occupied.")
-        else if (!piece.moveIsValid(from, to, board)) ZIO.fail(s"Invalid move.")
-        else gameStateRef.update(_ - from + (to -> piece))
+        _ <- ZIO.fail(ChessError.PositionOccupied(to)).when(board.contains(to))
+        _ <- ZIO.fail(ChessError.InvalidMove(from, to, "Invalid move for this piece type"))
+          .when(!piece.moveIsValid(from, to, board))
+        _ <- gameStateRef.update(_ - from + (to -> piece))
         event = PieceMoved(piece, from, to)
-        _ <- event.sendEventToKafka(producer, id).mapError(err => throw new RuntimeException(err))// Emit the move event to Kafka
+        _ <- event.sendEventToKafka(producer, id).mapError(err => throw new RuntimeException(err))
       } yield ()
     }
   }
 
   // Remove a piece by its unique ID and emit an event to Kafka
-  def removePieceById(id: String): IO[String, Position] = {
+  def removePieceById(id: String): IO[ChessError, Position] = {
     for {
       board <- gameStateRef.get
       foundPiece <- findPieceById(id, board)
@@ -88,14 +90,14 @@ class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece
       lastPosition = position
       _ <- removedPiecesRef.update(_ + (id -> lastPosition))
       event = PieceRemoved(piece, position)
-      _ <- event.sendEventToKafka(producer, id).mapError(err => throw new RuntimeException(err))  // Emit the remove event to Kafka
+      _ <- event.sendEventToKafka(producer, id).mapError(err => throw new RuntimeException(err))
     } yield lastPosition
   }
 
-  private def findPieceById(id: String, board: Map[Position, Piece]): IO[String, (Position, Piece)] =
+  private def findPieceById(id: String, board: Map[Position, Piece]): IO[ChessError, (Position, Piece)] =
     board.collectFirst { case (pos, piece) if piece.id == id => (pos, piece) } match {
       case Some(result) => ZIO.succeed(result)
-      case None         => ZIO.fail(s"No piece with ID: $id found on the board.")
+      case None         => ZIO.fail(ChessError.PieceNotFound(id))
     }
 
   private def pieceExists(id: String, board: Map[Position, Piece]) =
@@ -104,15 +106,14 @@ class ChessGameService(producer: Producer, gameStateRef: Ref[Map[Position, Piece
       case None => false
     }
 
+  def getBoard = gameStateRef.get
 
-  def getBoard= gameStateRef.get
-
-  def getLastPositionOfRemovedPiece(id: String): IO[String, Position] = {
+  def getLastPositionOfRemovedPiece(id: String): IO[ChessError, Position] = {
     for {
       removedPieces <- removedPiecesRef.get
       position <- removedPieces.get(id) match {
         case Some(pos) => ZIO.succeed(pos)
-        case None      => ZIO.fail(s"No removed piece with ID: $id found.")
+        case None      => ZIO.fail(ChessError.PieceNotFound(id))
       }
     } yield position
   }
@@ -159,18 +160,18 @@ object ChessGameService {
       } yield new ChessGameService(producer, gameStateRef, removedPiecesRef)
     }
 
-  def addPiece(pieceType: String, position: Position, pieceId: Option[String] = None): ZIO[ChessGameService, String, Piece] =
+  def addPiece(pieceType: PieceType, position: Position, pieceId: Option[String] = None): ZIO[ChessGameService, ChessError, Piece] =
     ZIO.serviceWithZIO[ChessGameService](_.addPiece(pieceType, position, pieceId))
 
-  def movePiece(from: Position, to: Position): ZIO[ChessGameService, String, Unit] =
+  def movePiece(from: Position, to: Position): ZIO[ChessGameService, ChessError, Unit] =
     ZIO.serviceWithZIO[ChessGameService](_.movePiece(from, to))
 
-  def movePieceById(id: String, to: Position): ZIO[ChessGameService, String, Unit] =
+  def movePieceById(id: String, to: Position): ZIO[ChessGameService, ChessError, Unit] =
     ZIO.serviceWithZIO[ChessGameService](_.movePieceById(id, to))
 
   def getBoard = ZIO.serviceWithZIO[ChessGameService](_.getBoard)
 
-  def removePiece(pieceId: String): ZIO[ChessGameService, String, Position] =
+  def removePiece(pieceId: String): ZIO[ChessGameService, ChessError, Position] =
     ZIO.serviceWithZIO[ChessGameService](_.removePieceById(pieceId))
 
   def getLastPositionOfRemovedPiece(id: String) =
