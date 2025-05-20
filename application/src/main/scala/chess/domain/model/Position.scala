@@ -1,4 +1,4 @@
-package chess
+package chess.domain.model
 
 import zio.json.{DeriveJsonDecoder, DeriveJsonEncoder, JsonDecoder, JsonEncoder}
 

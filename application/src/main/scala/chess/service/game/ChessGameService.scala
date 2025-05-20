@@ -1,10 +1,13 @@
-package chess
+package chess.service.game
 
+import chess.domain.error.ChessError
+import chess.domain.model._
+import chess.infrastructure.kafka.{ChessEvent, PieceAdded, PieceMoved, PieceRemoved}
+import zio._
 import zio.kafka.consumer.{Consumer, ConsumerSettings, Subscription}
-import zio.{ZIO, Scope, _}
 import zio.kafka.producer._
 import zio.kafka.serde.{Serde => KafkaSerde}
-import chess.api.{PieceType, ChessError}
+
 import java.util.UUID
 
 trait GameService {

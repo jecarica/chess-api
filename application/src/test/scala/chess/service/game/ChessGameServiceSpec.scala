@@ -1,13 +1,14 @@
-package chess
+package chess.service.game
 
-import chess.api.{ChessError, PieceType}
+import chess.domain.error.ChessError
+import chess.domain.model._
 import zio._
-import zio.test._
-import zio.test.Assertion._
+import zio.kafka.consumer.{Consumer, Subscription}
 import zio.kafka.serde.Serde
-import zio.kafka.consumer.{ Consumer, Subscription }
-import zio.kafka.testkit.KafkaTestUtils.{ consumer, producer }
+import zio.kafka.testkit.KafkaTestUtils.{consumer, producer}
 import zio.kafka.testkit._
+import zio.test.Assertion._
+import zio.test._
 
 
 object ChessGameServiceSpec extends ZIOSpecDefault {

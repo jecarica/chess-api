@@ -3,6 +3,9 @@ import zio._
 import zio.http._
 import zio.kafka.producer.{Producer, ProducerSettings}
 import chess._
+import chess.domain._
+import chess.domain.model.{Piece, Position}
+import chess.service.game.ChessGameService
 
 object ChessServer extends ZIOAppDefault {
 
@@ -12,9 +15,7 @@ object ChessServer extends ZIOAppDefault {
       // Initialize state references for the chess game
       gameStateRef <- Ref.make(Map.empty[Position, Piece])
       removedPiecesRef <- Ref.make(Map.empty[String, Position])
-      // Create an instance of the chess game service
       chessGameService = new ChessGameService(producer, gameStateRef, removedPiecesRef)
-      // Create the Chess API
       chessApi = new ChessApi(chessGameService)
 
       consumerFiber <- chessGameService.consumeGameEvents.fork

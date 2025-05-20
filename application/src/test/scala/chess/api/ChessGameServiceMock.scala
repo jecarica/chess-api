@@ -1,6 +1,8 @@
 package chess.api
 
-import chess.{GameService, Position, Piece, Rook, Bishop}
+import chess.domain.error.ChessError
+import chess.domain.model._
+import chess.service.game.GameService
 import zio.{IO, Ref, UIO, ZIO}
 
 class ChessGameServiceMock(
