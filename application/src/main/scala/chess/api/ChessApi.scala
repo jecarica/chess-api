@@ -1,9 +1,9 @@
 package chess.api
 
-import chess._
-import chess.domain.model._
+import chess.api.dto.Request._
 import chess.domain.error.ChessError._
 import chess.domain.error.ChessError
+import chess.api.dto.JsonCodecs._
 import chess.domain.model.{Piece, PieceType, Position, Rook}
 import chess.service.game.ChessGameService
 import sttp.model.StatusCode
@@ -14,69 +14,14 @@ import sttp.tapir.json.zio._
 import sttp.tapir.ztapir._
 import sttp.tapir.Schema
 import zio._
-import zio.json.{DeriveJsonDecoder, DeriveJsonEncoder, JsonDecoder, JsonEncoder, JsonFieldDecoder, JsonFieldEncoder}
-import enumeratum._
+import zio.json.{DeriveJsonDecoder, DeriveJsonEncoder, JsonDecoder, JsonEncoder}
 
-object JsonCodecs {
-  implicit val positionFieldDecoder: JsonFieldDecoder[Position] = JsonFieldDecoder[String].map { str =>
-    val parts = str.split(",")
-    Position(parts(0).toInt, parts(1).toInt)
-  }
-  
-  implicit val positionFieldEncoder: JsonFieldEncoder[Position] = JsonFieldEncoder[String].contramap { pos =>
-    s"${pos.x},${pos.y}"
-  }
-
-  implicit val mapJsonDecoder: JsonDecoder[Map[Position, Piece]] = JsonDecoder.map[Position, Piece]
-  implicit val mapJsonEncoder: JsonEncoder[Map[Position, Piece]] = JsonEncoder.map[Position, Piece]
-}
-
-object Schemas {
-  // Define Position schema manually since it's a case class with primitive types
-  implicit val positionSchema: Schema[Position] = Schema.derived[Position]
-    .description("Chess board position")
-    .modify(_.x)(_.description("X coordinate (1-8)"))
-    .modify(_.y)(_.description("Y coordinate (1-8)"))
-  
-  // Define Piece schema
-  implicit val pieceSchema: Schema[Piece] = Schema.derived[Piece]
-    .description("Chess piece")
-    .modify(_.id)(_.description("Unique identifier of the piece"))
-
-  // Define Map schema using schemaForMap
-  implicit val mapPositionPieceSchema: Schema[Map[Position, Piece]] = 
-    Schema.schemaForMap[Position, Piece](pos => s"${pos.x},${pos.y}")
-      .description("Map of positions to pieces on the board")
-}
-
-case class AddPieceRequest(pieceType: PieceType, position: Position)
-
-object AddPieceRequest {
-  import Schemas._
-  implicit val jsonDecoder: JsonDecoder[AddPieceRequest] = DeriveJsonDecoder.gen[AddPieceRequest]
-  implicit val jsonEncoder: JsonEncoder[AddPieceRequest] = DeriveJsonEncoder.gen[AddPieceRequest]
-  implicit val schema: Schema[AddPieceRequest] = Schema.derived[AddPieceRequest]
-    .description("Request to add a new piece to the board")
-    .modify(_.pieceType)(_.description("Type of piece to add (Rook or Bishop)"))
-    .modify(_.position)(_.description("Position where to add the piece"))
-}
-
-case class MovePieceRequest(to: Position)
-
-object MovePieceRequest {
-  import Schemas._
-  implicit val jsonDecoder: JsonDecoder[MovePieceRequest] = DeriveJsonDecoder.gen[MovePieceRequest]
-  implicit val jsonEncoder: JsonEncoder[MovePieceRequest] = DeriveJsonEncoder.gen[MovePieceRequest]
-  implicit val schema: Schema[MovePieceRequest] = Schema.derived[MovePieceRequest]
-    .description("Request to move a piece to a new position")
-    .modify(_.to)(_.description("Target position to move the piece to"))
-}
 
 case class BoardState(pieces: Map[Position, Piece])
 
 object BoardState {
-  import JsonCodecs._
-  import Schemas._
+  import chess.api.dto.JsonCodecs._
+  import chess.api.dto.Schemas._
   implicit val jsonDecoder: JsonDecoder[BoardState] = DeriveJsonDecoder.gen[BoardState]
   implicit val jsonEncoder: JsonEncoder[BoardState] = DeriveJsonEncoder.gen[BoardState]
   implicit val schema: Schema[BoardState] = Schema.derived[BoardState]
