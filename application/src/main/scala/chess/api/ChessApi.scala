@@ -30,13 +30,6 @@ object BoardState {
 }
 
 class ChessApi(chessGameService: ChessGameService) {
-  private def handleError(error: ChessError): (StatusCode, String) = error match {
-    case _: ChessError.InvalidPosition => (StatusCode.BadRequest, error.message)
-    case _: ChessError.InvalidPieceType => (StatusCode.BadRequest, error.message)
-    case _: ChessError.PositionOccupied => (StatusCode.Conflict, error.message)
-    case _: ChessError.PieceNotFound => (StatusCode.NotFound, error.message)
-    case _: ChessError.InvalidMove => (StatusCode.BadRequest, error.message)
-  }
 
   // Endpoint to add a piece
   val addPieceEndpoint: ZServerEndpoint[Any, Any] =
